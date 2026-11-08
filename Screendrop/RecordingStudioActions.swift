@@ -247,9 +247,17 @@ struct StudioActionFooter: View {
 
     private var settingsSummary: String {
         let settings = model.exportSettings
+        let format = settings.effectiveDeliveryFormat
+        if format == .gif {
+            return [
+                format.rawValue,
+                settings.effectiveGIFSize.rawValue,
+                settings.effectiveGIFFrameRate.rawValue
+            ].joined(separator: " · ")
+        }
         let resolution = settings.resolution == .original ? "Full size" : settings.resolution.rawValue
         return [
-            settings.effectiveContainer.rawValue,
+            format.rawValue,
             resolution,
             settings.effectiveFrameRate.rawValue
         ].joined(separator: " · ")

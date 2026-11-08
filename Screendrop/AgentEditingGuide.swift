@@ -44,6 +44,9 @@ enum AgentEditingGuide {
         exportSettings.resolution: \(values(VideoCompressionResolution.self))
         exportSettings.container: \(values(VideoExportContainer.self))
         exportSettings.frameRate: \(values(VideoExportFrameRate.self))
+        exportSettings.deliveryFormat: \(values(RecordingDeliveryFormat.self)); GIF ignores audio and codec
+        exportSettings.gifFrameRate: \(values(RecordingGIFFrameRate.self))
+        exportSettings.gifSize: \(values(RecordingGIFSize.self))
         audioExportFormat (export_audio format): \(values(RecordingAudioFormat.self))
         """)
 

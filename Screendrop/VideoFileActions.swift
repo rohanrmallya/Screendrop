@@ -143,9 +143,13 @@ enum VideoFileActions {
         for sourceURL: URL,
         container: VideoExportContainer = .default
     ) -> String {
+        exportFileName(for: sourceURL, fileExtension: container.fileExtension)
+    }
+
+    static func exportFileName(for sourceURL: URL, fileExtension: String) -> String {
         sourceURL
             .deletingPathExtension()
-            .appendingPathExtension(container.fileExtension)
+            .appendingPathExtension(fileExtension)
             .lastPathComponent
     }
 

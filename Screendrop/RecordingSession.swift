@@ -148,6 +148,11 @@ nonisolated struct RecordingSession: Sendable, Equatable {
         guard let other else { return false }
         var normalized = document
         normalized.exportSettings?.container = other.exportSettings?.container
+        // The delivery format and GIF options only change how the rendered
+        // movie is wrapped or sampled, not its encoded samples.
+        normalized.exportSettings?.deliveryFormat = other.exportSettings?.deliveryFormat
+        normalized.exportSettings?.gifFrameRate = other.exportSettings?.gifFrameRate
+        normalized.exportSettings?.gifSize = other.exportSettings?.gifSize
         return normalized == other
     }
 

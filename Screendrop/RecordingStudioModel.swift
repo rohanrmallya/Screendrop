@@ -3252,13 +3252,13 @@ final class RecordingStudioModel {
     }
 
     private var exportSuggestedFileName: String {
-        let container = exportSettings.effectiveContainer
+        let format = exportSettings.effectiveDeliveryFormat
         return session.map {
             $0.directoryURL
                 .deletingPathExtension()
                 .lastPathComponent
-                .appending(".\(container.fileExtension)")
-        } ?? VideoFileActions.exportFileName(for: screenURL, container: container)
+                .appending(".\(format.fileExtension)")
+        } ?? VideoFileActions.exportFileName(for: screenURL, fileExtension: format.fileExtension)
     }
 
     /// Entry point for the export options popover. Assigning settings marks
@@ -3277,6 +3277,11 @@ final class RecordingStudioModel {
         guard !exportState.isExporting, !shareState.isBusy, isLoaded else { return }
         pause()
         let previewURL = sessionURL
+
+        if exportSettings.effectiveDeliveryFormat == .gif {
+            exportGIF(previewURL: previewURL)
+            return
+        }
 
         // A fresh deliverable (e.g. right after a share) is byte-identical
         // to what this render would produce - same configuration builds
@@ -3339,6 +3344,117 @@ final class RecordingStudioModel {
                 self?.exportState = .failed(error.localizedDescription)
             }
         }
+    }
+
+    /// GIF delivery. A fresh video deliverable is reused when one exists;
+    /// otherwise the cut is rendered to a temporary movie, then sampled into
+    /// an animated GIF. The intermediate is never installed as the session's
+    /// deliverable: it is silent and rendered for the GIF's size, not for a
+    /// later video export.
+    private func exportGIF(previewURL: URL) {
+        exportState = .exporting(progress: 0)
+
+        let cachedVideo = freshDeliverableURL
+        let suggestedFileName = exportSuggestedFileName
+        let gifFrameRate = exportSettings.effectiveGIFFrameRate.framesPerSecond
+        let gifSize = exportSettings.effectiveGIFSize.maximumPixelSize
+        var configuration: RecordingStudioExporter.Configuration?
+        if cachedVideo == nil {
+            var renderConfiguration = makeExportConfiguration()
+            renderConfiguration.exportSettings = gifIntermediateSettings
+            configuration = renderConfiguration
+        }
+        // The render owns the first part of the progress bar when it has to
+        // run; a cached movie makes the GIF conversion the whole job.
+        let renderWeight = cachedVideo == nil ? 0.7 : 0.0
+
+        let dockProgressID = DockExportProgressCoordinator.shared.start()
+
+        exportTask = Task { [weak self] in
+            var temporaryVideo: URL?
+            var temporaryGIF: URL?
+            do {
+                let videoURL: URL
+                if let cachedVideo {
+                    videoURL = cachedVideo
+                } else if let configuration {
+                    let exporter = RecordingStudioExporter()
+                    let url = try await exporter.export(configuration) { progress in
+                        Task { @MainActor [weak self] in
+                            let overall = progress * renderWeight
+                            DockExportProgressCoordinator.shared.update(dockProgressID, progress: overall)
+                            if self?.exportState.isExporting == true {
+                                self?.exportState = .exporting(progress: overall)
+                            }
+                        }
+                    }
+                    temporaryVideo = url
+                    videoURL = url
+                } else {
+                    throw RecordingStudioExporter.ExportError.writerFailed(nil)
+                }
+
+                let gifURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("\(UUID().uuidString).gif")
+                temporaryGIF = gifURL
+                try await RecordingGIFExporter.write(
+                    from: videoURL,
+                    to: gifURL,
+                    frameRate: gifFrameRate,
+                    maximumPixelSize: gifSize
+                ) { progress in
+                    Task { @MainActor [weak self] in
+                        let overall = renderWeight + progress * (1 - renderWeight)
+                        DockExportProgressCoordinator.shared.update(dockProgressID, progress: overall)
+                        if self?.exportState.isExporting == true {
+                            self?.exportState = .exporting(progress: overall)
+                        }
+                    }
+                }
+
+                let savedURL = try await VideoFileActions.saveToDefaultLocation(
+                    from: gifURL,
+                    suggestedFileName: suggestedFileName
+                )
+                if let temporaryVideo { try? FileManager.default.removeItem(at: temporaryVideo) }
+                try? FileManager.default.removeItem(at: gifURL)
+                DockExportProgressCoordinator.shared.finish(dockProgressID)
+                RecordingExportNotifier.notifySuccess(fileURL: savedURL)
+                RecordingExportNotifier.revealIfPreferred(fileURL: savedURL)
+                CaptureShelf.shared.dismissVideo(for: previewURL)
+                self?.exportState = .finished(savedURL)
+            } catch is CancellationError {
+                if let temporaryVideo { try? FileManager.default.removeItem(at: temporaryVideo) }
+                if let temporaryGIF { try? FileManager.default.removeItem(at: temporaryGIF) }
+                DockExportProgressCoordinator.shared.finish(dockProgressID)
+                self?.exportState = .idle
+            } catch RecordingStudioExporter.ExportError.cancelled {
+                if let temporaryVideo { try? FileManager.default.removeItem(at: temporaryVideo) }
+                if let temporaryGIF { try? FileManager.default.removeItem(at: temporaryGIF) }
+                DockExportProgressCoordinator.shared.finish(dockProgressID)
+                self?.exportState = .idle
+            } catch {
+                if let temporaryVideo { try? FileManager.default.removeItem(at: temporaryVideo) }
+                if let temporaryGIF { try? FileManager.default.removeItem(at: temporaryGIF) }
+                DockExportProgressCoordinator.shared.finish(dockProgressID)
+                self?.exportState = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    /// The intermediate movie for GIF export: silent, H.264 at high quality,
+    /// sized to the GIF, and rendered at 30 fps so 10/15/20 can be sampled.
+    private var gifIntermediateSettings: VideoCompressionSettings {
+        var settings = exportSettings
+        settings.removeAudio = true
+        settings.container = .mov
+        settings.deliveryFormat = .mov
+        settings.quality = .high
+        settings.speed = .fast
+        settings.codec = .h264
+        settings.resolution = exportSettings.effectiveGIFSize.videoResolution
+        settings.frameRate = .fps30
+        return settings
     }
 
     func cancelExport() {

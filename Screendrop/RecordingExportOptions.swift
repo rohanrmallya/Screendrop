@@ -77,17 +77,48 @@ struct RecordingExportOptionsPopover: View {
             }
         ) {
             VStack(alignment: .leading, spacing: InspectorMetrics.rowSpacing) {
-                segmented("Quality", options: VideoCompressionQuality.allCases, selection: $settings.quality)
-                segmented("Codec", options: VideoCompressionCodec.allCases, selection: $settings.codec)
-                segmented("Resolution", options: VideoCompressionResolution.allCases, selection: $settings.resolution)
+                // `container` and the GIF fields are optional on disk for
+                // backwards compatibility, but the control always shows a
+                // concrete choice.
                 segmented(
-                    "Frame rate",
-                    options: VideoExportFrameRate.allCases,
+                    "Format",
+                    options: RecordingDeliveryFormat.allCases,
                     selection: Binding(
-                        get: { settings.effectiveFrameRate },
-                        set: { settings.frameRate = $0 }
+                        get: { settings.effectiveDeliveryFormat },
+                        set: { settings.chooseDeliveryFormat($0) }
                     )
                 )
+
+                if settings.effectiveDeliveryFormat == .gif {
+                    segmented(
+                        "GIF frame rate",
+                        options: RecordingGIFFrameRate.allCases,
+                        selection: Binding(
+                            get: { settings.effectiveGIFFrameRate },
+                            set: { settings.gifFrameRate = $0 }
+                        )
+                    )
+                    segmented(
+                        "GIF size",
+                        options: RecordingGIFSize.allCases,
+                        selection: Binding(
+                            get: { settings.effectiveGIFSize },
+                            set: { settings.gifSize = $0 }
+                        )
+                    )
+                } else {
+                    segmented("Quality", options: VideoCompressionQuality.allCases, selection: $settings.quality)
+                    segmented("Codec", options: VideoCompressionCodec.allCases, selection: $settings.codec)
+                    segmented("Resolution", options: VideoCompressionResolution.allCases, selection: $settings.resolution)
+                    segmented(
+                        "Frame rate",
+                        options: VideoExportFrameRate.allCases,
+                        selection: Binding(
+                            get: { settings.effectiveFrameRate },
+                            set: { settings.frameRate = $0 }
+                        )
+                    )
+                }
 
                 toggle("Motion blur", isOn: Binding(
                     get: { settings.effectiveMotionBlurEnabled },
@@ -95,34 +126,27 @@ struct RecordingExportOptionsPopover: View {
                 ))
                 .help("Soften motion during zooms and pans. Turn off for faster exports with sharper motion.")
 
-                // `container` is optional on disk for backwards compatibility,
-                // but the control always shows a concrete choice.
-                segmented(
-                    "Format",
-                    options: VideoExportContainer.allCases,
-                    selection: Binding(
-                        get: { settings.effectiveContainer },
-                        set: { settings.container = $0 }
-                    )
-                )
-
                 InspectorHint(formatHint)
 
-                toggle("Include audio", isOn: Binding(
-                    get: { !settings.removeAudio },
-                    set: { settings.removeAudio = !$0 }
-                ))
-                .padding(.top, 2)
+                if settings.effectiveDeliveryFormat != .gif {
+                    toggle("Include audio", isOn: Binding(
+                        get: { !settings.removeAudio },
+                        set: { settings.removeAudio = !$0 }
+                    ))
+                    .padding(.top, 2)
+                }
             }
         }
     }
 
     private var formatHint: String {
-        switch settings.effectiveContainer {
+        switch settings.effectiveDeliveryFormat {
         case .mov:
             "Native QuickTime format for Apple apps."
         case .mp4:
             "Plays on more platforms, including Windows, browsers, and Slack."
+        case .gif:
+            "An animated image that loops forever. GIFs are silent and get large quickly; 720p at 15 fps is a good balance."
         }
     }
 
