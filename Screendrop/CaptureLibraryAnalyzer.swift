@@ -224,12 +224,17 @@ nonisolated enum CaptureLibraryAnalyzer {
         let session = LanguageModelSession(instructions: instructions)
         let options = GenerationOptions(temperature: 0.2)
         do {
+            // `Attachment` and image generation are only in the macOS 27 SDK.
+            // The compiler guard keeps the project buildable with the macOS 26
+            // SDK, where these symbols do not exist even behind #available.
+            #if compiler(>=6.4)
             if #available(macOS 27.0, *), let image {
                 return try await session.respond(generating: Insight.self, options: options) {
                     prompt
                     Attachment(image).label("The capture")
                 }.content
             }
+            #endif
             return try await session.respond(to: prompt, generating: Insight.self, options: options).content
         } catch {
             return nil
@@ -238,9 +243,11 @@ nonisolated enum CaptureLibraryAnalyzer {
 
     /// Whether the system model accepts images (macOS 27 and later).
     private static var visionCapable: Bool {
+        #if compiler(>=6.4)
         if #available(macOS 27.0, *) {
             return SystemLanguageModel.default.capabilities.contains(.vision)
         }
+        #endif
         return false
     }
 }
